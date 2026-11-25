@@ -180,8 +180,21 @@ SELECT * FROM v_approved_applicants;                     -- S001 (75.00) and S00
 -- CALL pr_assess_application(99);                       -- unknown application
 -- CALL pr_assess_application(1);                        -- already assessed
 
--- Schedule: every Monday at 08:00 (requires pg_cron)
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-SELECT cron.schedule('assess_pending_weekly', '0 8 * * 1',
-  $$CALL q10_scholarship.pr_assess_pending()$$);
-SELECT jobid, schedule, command, jobname FROM cron.job;
+-- (g) Schedule: every Monday at 08:00
+-- Uses pg_cron. If pg_cron is not installed on this server, this block prints a notice with the
+-- exact job instead of failing.
+DO $do$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+    PERFORM cron.schedule('assess_pending_weekly', '0 8 * * 1',
+      $cmd$CALL q10_scholarship.pr_assess_pending()$cmd$);
+  ELSE
+    RAISE NOTICE 'pg_cron is not installed on this server. Job to schedule: cron.schedule(%, %, %)',
+      'assess_pending_weekly', '0 8 * * 1', $cmd$CALL q10_scholarship.pr_assess_pending()$cmd$;
+  END IF;
+END $do$;
+
+-- Where pg_cron is installed, inspect the job and its run history with:
+-- SELECT jobid, jobname, schedule, command, active FROM cron.job;
+-- SELECT jobid, status, return_message, start_time, end_time FROM cron.job_run_details ORDER BY start_time DESC;
