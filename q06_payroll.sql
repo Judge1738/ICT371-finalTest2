@@ -166,13 +166,21 @@ SELECT COUNT(*) FROM payroll;                                          -- still 
 -- SELECT COUNT(*) FROM payroll;                                       -- still 8
 -- DELETE FROM employees WHERE full_name = 'Test Negative';
 
--- (g) Schedule: 02:00 on the 1st of each month, for the previous month (requires pg_cron)
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-SELECT cron.schedule('process_payroll_monthly', '0 2 1 * *',
-  $$CALL q6_payroll.pr_process_payroll((date_trunc('month', CURRENT_DATE) - INTERVAL '1 month')::date)$$);
+-- (g) Schedule: 02:00 on the 1st of each month, previous month
+-- Uses pg_cron. If pg_cron is not installed on this server, this block prints a notice with the
+-- exact job instead of failing.
+DO $do$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+    PERFORM cron.schedule('process_payroll_monthly', '0 2 1 * *',
+      $cmd$CALL q6_payroll.pr_process_payroll((date_trunc('month', CURRENT_DATE) - INTERVAL '1 month')::date)$cmd$);
+  ELSE
+    RAISE NOTICE 'pg_cron is not installed on this server. Job to schedule: cron.schedule(%, %, %)',
+      'process_payroll_monthly', '0 2 1 * *', $cmd$CALL q6_payroll.pr_process_payroll((date_trunc('month', CURRENT_DATE) - INTERVAL '1 month')::date)$cmd$;
+  END IF;
+END $do$;
 
--- Inspect the job and its run history
-SELECT jobid, jobname, schedule, command, active FROM cron.job;
-SELECT jobid, status, return_message, start_time, end_time
-FROM cron.job_run_details
-ORDER BY start_time DESC;
+-- Where pg_cron is installed, inspect the job and its run history with:
+-- SELECT jobid, jobname, schedule, command, active FROM cron.job;
+-- SELECT jobid, status, return_message, start_time, end_time FROM cron.job_run_details ORDER BY start_time DESC;
