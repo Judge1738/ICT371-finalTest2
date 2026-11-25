@@ -183,8 +183,21 @@ CALL pr_refresh_overdue(CURRENT_DATE);
 CALL pr_refresh_overdue(CURRENT_DATE);       -- rerun: same row replaced, not duplicated
 SELECT * FROM overdue_summary;               -- 4 unreturned loans, total fine 16.00
 
--- Schedule: daily at 00:10 for CURRENT_DATE (requires pg_cron)
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-SELECT cron.schedule('refresh_overdue_daily', '10 0 * * *',
-  $$CALL q3_library.pr_refresh_overdue(CURRENT_DATE)$$);
-SELECT jobid, schedule, command, jobname FROM cron.job;
+-- (g) Schedule: daily at 00:10 for CURRENT_DATE
+-- Uses pg_cron. If pg_cron is not installed on this server, this block prints a notice with the
+-- exact job instead of failing.
+DO $do$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+    PERFORM cron.schedule('refresh_overdue_daily', '10 0 * * *',
+      $cmd$CALL q3_library.pr_refresh_overdue(CURRENT_DATE)$cmd$);
+  ELSE
+    RAISE NOTICE 'pg_cron is not installed on this server. Job to schedule: cron.schedule(%, %, %)',
+      'refresh_overdue_daily', '10 0 * * *', $cmd$CALL q3_library.pr_refresh_overdue(CURRENT_DATE)$cmd$;
+  END IF;
+END $do$;
+
+-- Where pg_cron is installed, inspect the job and its run history with:
+-- SELECT jobid, jobname, schedule, command, active FROM cron.job;
+-- SELECT jobid, status, return_message, start_time, end_time FROM cron.job_run_details ORDER BY start_time DESC;
