@@ -176,8 +176,21 @@ CALL pr_refresh_receivables();
 CALL pr_refresh_receivables();                   -- rerun: today's row replaced, not duplicated
 SELECT * FROM receivable_snapshot;               -- total_due 203.50
 
--- Schedule: daily at 00:30 (requires pg_cron)
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-SELECT cron.schedule('refresh_receivables_daily', '30 0 * * *',
-  $$CALL q7_water.pr_refresh_receivables()$$);
-SELECT jobid, schedule, command, jobname FROM cron.job;
+-- (g) Schedule: daily at 00:30
+-- Uses pg_cron. If pg_cron is not installed on this server, this block prints a notice with the
+-- exact job instead of failing.
+DO $do$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+    PERFORM cron.schedule('refresh_receivables_daily', '30 0 * * *',
+      $cmd$CALL q7_water.pr_refresh_receivables()$cmd$);
+  ELSE
+    RAISE NOTICE 'pg_cron is not installed on this server. Job to schedule: cron.schedule(%, %, %)',
+      'refresh_receivables_daily', '30 0 * * *', $cmd$CALL q7_water.pr_refresh_receivables()$cmd$;
+  END IF;
+END $do$;
+
+-- Where pg_cron is installed, inspect the job and its run history with:
+-- SELECT jobid, jobname, schedule, command, active FROM cron.job;
+-- SELECT jobid, status, return_message, start_time, end_time FROM cron.job_run_details ORDER BY start_time DESC;
