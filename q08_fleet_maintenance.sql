@@ -175,8 +175,21 @@ UPDATE vehicles SET last_service_odometer = current_odometer WHERE vehicle_id = 
 CALL pr_refresh_service_alerts();
 SELECT * FROM service_alerts ORDER BY vehicle_id;   -- only vehicle 2 remains
 
--- Schedule: every Monday at 06:00 (requires pg_cron)
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-SELECT cron.schedule('refresh_service_alerts_weekly', '0 6 * * 1',
-  $$CALL q8_fleet.pr_refresh_service_alerts()$$);
-SELECT jobid, schedule, command, jobname FROM cron.job;
+-- (g) Schedule: every Monday at 06:00
+-- Uses pg_cron. If pg_cron is not installed on this server, this block prints a notice with the
+-- exact job instead of failing.
+DO $do$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+    PERFORM cron.schedule('refresh_service_alerts_weekly', '0 6 * * 1',
+      $cmd$CALL q8_fleet.pr_refresh_service_alerts()$cmd$);
+  ELSE
+    RAISE NOTICE 'pg_cron is not installed on this server. Job to schedule: cron.schedule(%, %, %)',
+      'refresh_service_alerts_weekly', '0 6 * * 1', $cmd$CALL q8_fleet.pr_refresh_service_alerts()$cmd$;
+  END IF;
+END $do$;
+
+-- Where pg_cron is installed, inspect the job and its run history with:
+-- SELECT jobid, jobname, schedule, command, active FROM cron.job;
+-- SELECT jobid, status, return_message, start_time, end_time FROM cron.job_run_details ORDER BY start_time DESC;
