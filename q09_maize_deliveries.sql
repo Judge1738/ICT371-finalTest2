@@ -160,8 +160,21 @@ CALL pr_refresh_purchases(CURRENT_DATE - 5);
 CALL pr_refresh_purchases(CURRENT_DATE - 5);        -- rerun: replaced, not added again
 SELECT * FROM daily_purchases;                      -- weight 280.50, value 922.00
 
--- Schedule: daily at 01:30 for the previous day (requires pg_cron)
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-SELECT cron.schedule('refresh_purchases_daily', '30 1 * * *',
-  $$CALL q9_maize.pr_refresh_purchases(CURRENT_DATE - 1)$$);
-SELECT jobid, schedule, command, jobname FROM cron.job;
+-- (g) Schedule: daily at 01:30 for the previous day
+-- Uses pg_cron. If pg_cron is not installed on this server, this block prints a notice with the
+-- exact job instead of failing.
+DO $do$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron') THEN
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+    PERFORM cron.schedule('refresh_purchases_daily', '30 1 * * *',
+      $cmd$CALL q9_maize.pr_refresh_purchases(CURRENT_DATE - 1)$cmd$);
+  ELSE
+    RAISE NOTICE 'pg_cron is not installed on this server. Job to schedule: cron.schedule(%, %, %)',
+      'refresh_purchases_daily', '30 1 * * *', $cmd$CALL q9_maize.pr_refresh_purchases(CURRENT_DATE - 1)$cmd$;
+  END IF;
+END $do$;
+
+-- Where pg_cron is installed, inspect the job and its run history with:
+-- SELECT jobid, jobname, schedule, command, active FROM cron.job;
+-- SELECT jobid, status, return_message, start_time, end_time FROM cron.job_run_details ORDER BY start_time DESC;
